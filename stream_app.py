@@ -29,4 +29,14 @@ def cleanup_temp_files():
 def download_youtube_audio(url):
   """Downloads only audio from Youtube using reliable browser impresonation."""
   audio_opts = {
-  
+    'format' : 'bestaudio/best',
+    'outtmpl' : 'temp_audio.%(ext)s',
+    'http_headers' : {
+      'User-Agent' : "Mozilla/5.0(Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/12
+      'Accept' : '*/*',
+      'Referer' : 'https://www.google.com/',
+
+    },
+    'postprocessors':[{
+      'key' : 'FFmpegExtractAudio',
+       preferredcod
