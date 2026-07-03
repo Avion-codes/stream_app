@@ -51,4 +51,5 @@ def handel_youtube_(url):
   """Callback function to ensure session state persists after button click."""
   try:
     # clean pervious errors
-    if 
+    if 'yt_error' in st.session_state:
+      del st.session
