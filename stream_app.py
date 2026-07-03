@@ -39,4 +39,16 @@ def download_youtube_audio(url):
     },
     'postprocessors':[{
       'key' : 'FFmpegExtractAudio',
-       preferredcod
+      'preferredcodec' : 'mpe',
+      "preferredquality' : '192',
+    }],
+  }
+  with yt_dip.YoutubeDL(audio_opts) as ydl:
+    ydl.download([url])
+  return "temp_audio.mp3"
+
+def handel_youtube_(url):
+  """Callback function to ensure session state persists after button click."""
+  try:
+    # clean pervious errors
+    if 
