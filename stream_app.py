@@ -2,11 +2,11 @@ import streamlit as st
 import os
 import glob
 
-# Handling MoviePy version differences (v1.x vs v2.x)
+# Safe MoviePy version importing (Prioritizing modern v2.0+, falling back to legacy v1.x)
 try:
-    from moviepy.editor import ImageClip, concatenate_videoclips, AudioFileClip
-except ImportError:
     from moviepy import ImageClip, concatenate_videoclips, AudioFileClip
+except ImportError:
+    from moviepy.editor import ImageClip, concatenate_videoclips, AudioFileClip
 import yt_dlp
 
 # --- 1. INITIALIZE STATE ---
@@ -16,8 +16,7 @@ if 'audio_path' not in st.session_state:
 # --- 2. DEFINE ALL FUNCTIONS ---
 
 def cleanup_temp_files():
-    """Removes temporary files and resets memory."""
-    # Pattern to catch temp_audio, temp_img_*, etc.
+    """Removes temporary multimedia chunks and resets application memory state."""
     files = glob.glob("temp_*") + ["output_video.mp4"]
     for f in files:
         try:
@@ -29,7 +28,7 @@ def cleanup_temp_files():
         del st.session_state['yt_error']
 
 def download_youtube_audio(url):
-    """Downloads only audio from YouTube using reliable browser impersonation."""
+    """Extracts high-quality audio tracking streaming layers using yt_dlp."""
     audio_opts = {
         'format': 'bestaudio/best',
         'outtmpl': 'temp_audio.%(ext)s',
@@ -50,7 +49,7 @@ def download_youtube_audio(url):
     return "temp_audio.mp3"
 
 def handle_youtube_download(url):
-    """Callback function to ensure session state persists after button click."""
+    """Callback execution managing thread states safely across Streamlit re-renders."""
     try:
         if 'yt_error' in st.session_state:
             del st.session_state['yt_error']
@@ -63,7 +62,7 @@ def handle_youtube_download(url):
         st.session_state['audio_path'] = None
 
 def create_video(image_files, duplicate_count, fps, audio_path):
-    """Processes images and merges with audio using MoviePy 2.0+ syntax."""
+    """Assembles visual timeline frames, maps resolution, and stitches target audio track."""
     clips = []
     duration_per_image = duplicate_count / fps
     target_resolution = (1280, 720) 
@@ -76,7 +75,7 @@ def create_video(image_files, duplicate_count, fps, audio_path):
             with open(temp_img_path, "wb") as f:
                 f.write(img_file.getbuffer())
             
-            # MoviePy 2.0+ syntax safely structured
+            # MoviePy 2.0+ explicit scaling architecture
             clip = ImageClip(temp_img_path).with_duration(duration_per_image)
             clip = clip.resized(target_resolution) 
             clips.append(clip)
@@ -93,14 +92,14 @@ def create_video(image_files, duplicate_count, fps, audio_path):
         output_filename = "output_video.mp4"
         final_clip.write_videofile(output_filename, codec="libx264", audio_codec="aac")
         
-        # Explicitly close clips to release file locks
+        # Release system resources holding data layers open
         final_clip.close()
         audio_clip.close()
         
         return output_filename
 
     finally:
-        # Clean up frames immediately to prevent disk bloating
+        # Prompt clean up on individual image files immediately to secure storage spaces
         for img in temp_images:
             try:
                 os.remove(img)
@@ -137,7 +136,6 @@ with col1:
 
 with col2:
     st.subheader("2. Audio")
-    # Reset audio path logic if source changes to prevent cross-contamination
     audio_source = st.radio("Source", ["Upload File", "YouTube Link"], key="audio_src_toggle")
     
     if audio_source == "Upload File":
