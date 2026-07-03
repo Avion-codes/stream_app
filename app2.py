@@ -1,169 +1,184 @@
+import streamlit as st
 import os
 import glob
-import streamlit as st
 
-# Handling moviepy version differences safely
+# Handling MoviePy version differences (v1.x vs v2.x)
 try:
-    from moviepy.editor import ImageClip, AudioFileClip
+    from moviepy.editor import ImageClip, concatenate_videoclips, AudioFileClip
 except ImportError:
-    from moviepy import ImageClip, AudioFileClip
-
+    from moviepy import ImageClip, concatenate_videoclips, AudioFileClip
 import yt_dlp
 
-# --- 1. CONFIGURATION & STATE INITIALIZATION ---
-st.set_page_config(page_title="YouTube Audio Video Creator", page_icon="🎬", layout="centered")
-
+# --- 1. INITIALIZE STATE ---
 if 'audio_path' not in st.session_state:
     st.session_state['audio_path'] = None
-if 'video_path' not in st.session_state:
-    st.session_state['video_path'] = None
-if 'yt_error' not in st.session_state:
-    st.session_state['yt_error'] = None
+if 'yt_error' in st.session_state:
+    pass # Keep it for display logic
 
-# --- 2. CORE UTILITY FUNCTIONS ---
+# --- 2. DEFINE ALL FUNCTIONS ---
+
 def cleanup_temp_files():
-    """Removes all generated temporary files and resets the app state."""
+    """Removes temporary files and resets memory."""
     files = glob.glob("temp_*") + ["output_video.mp4"]
     for f in files:
         try:
-            if os.path.exists(f):
-                os.remove(f)
-        except Exception:
+            os.remove(f)
+        except:
             pass
     st.session_state['audio_path'] = None
-    st.session_state['video_path'] = None
-    st.session_state['yt_error'] = None
-    st.rerun()
+    if 'yt_error' in st.session_state:
+        del st.session_state['yt_error']
 
 def download_youtube_audio(url):
-    """Downloads audio from a YouTube link using yt_dlp and outputs an MP3."""
+    """Downloads only audio from YouTube using reliable browser impersonation."""
     audio_opts = {
         'format': 'bestaudio/best',
         'outtmpl': 'temp_audio.%(ext)s',
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 safari/537.36',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
             'Accept': '*/*',
-            'Referer': 'https://google.com',
+            'Referer': 'https://www.google.com/',
         },
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
             'preferredquality': '192',
         }],
-        'quiet': True
     }
     with yt_dlp.YoutubeDL(audio_opts) as ydl:
         ydl.download([url])
     return "temp_audio.mp3"
 
-# --- 3. CALLBACK HANDLERS ---
-def handle_youtube_download():
-    """Triggered when the user clicks 'Download Audio'."""
-    url = st.session_state.get('yt_url_input', '').strip()
-    if not url:
-        st.session_state['yt_error'] = "Please provide a valid YouTube URL."
-        return
-
-    st.session_state['yt_error'] = None
-    st.session_state['audio_path'] = None
-
+def handle_youtube_download(url):
+    """Callback function to ensure session state persists after button click."""
     try:
+        # Clear previous errors
+        if 'yt_error' in st.session_state:
+            del st.session_state['yt_error']
+            
         res_path = download_youtube_audio(url)
-        if res_path and os.path.exists(res_path):
+        if res_path:
             st.session_state['audio_path'] = res_path
     except Exception as e:
-        st.session_state['yt_error'] = f"Failed to download audio: {str(e)}"
+        st.session_state['yt_error'] = str(e)
 
-# --- 4. STREAMLIT USER INTERFACE ---
-st.title("🎬 YouTube Audio Video Creator")
-st.write("Extract audio from a YouTube link, attach it to a static image, and export an MP4 video.")
+def create_video(image_files, duplicate_count, fps, audio_path):
+    """Processes images and merges with audio using MoviePy 2.0+ syntax."""
+    clips = []
+    duration_per_image = duplicate_count / fps
+    target_resolution = (1280, 720) 
 
-# Sidebar Reset Controls
-with st.sidebar:
-    st.header("App Controls")
-    if st.button("🔄 Reset & Clear Cache", use_container_width=True):
-        cleanup_temp_files()
-
-# STEP 1: YouTube Downloader UI
-st.subheader("Step 1: Get YouTube Audio")
-st.text_input(
-    "Enter YouTube URL:", 
-    key="yt_url_input", 
-    placeholder="https://youtube.com..."
-)
-
-st.button(
-    "📥 Extract Audio", 
-    on_click=handle_youtube_download, 
-    type="primary", 
-    disabled=not st.session_state.get('yt_url_input')
-)
-
-# Display Step 1 Status
-if st.session_state['yt_error']:
-    st.error(st.session_state['yt_error'])
-elif st.session_state['audio_path']:
-    st.success("✅ Audio downloaded successfully!")
-    st.audio(st.session_state['audio_path'])
-
-# STEP 2: Image Upload & Rendering UI
-if st.session_state['audio_path']:
-    st.divider()
-    st.subheader("Step 2: Upload Background Image & Generate Video")
-    
-    uploaded_image = st.file_uploader(
-        "Choose a background image (JPG/PNG)", 
-        type=["jpg", "jpeg", "png"]
-    )
-    
-    if uploaded_image:
-        st.image(uploaded_image, caption="Selected Background", width=300)
+    for idx, img_file in enumerate(image_files):
+        temp_img_path = f"temp_img_{idx}.png"
+        with open(temp_img_path, "wb") as f:
+            f.write(img_file.getbuffer())
         
-        if st.button("🚀 Render Video", use_container_width=True):
-            with st.spinner("Processing video layers... This may take a moment."):
-                try:
-                    # Save uploaded file temporarily
-                    img_ext = uploaded_image.name.split(".")[-1]
-                    temp_img_path = f"temp_bg.{img_ext}"
-                    with open(temp_img_path, "wb") as f:
-                        f.write(uploaded_image.getbuffer())
-                    
-                    # Process with MoviePy
-                    audio_clip = AudioFileClip(st.session_state['audio_path'])
-                    
-                    # Create image clip matched to audio length
-                    video_clip = ImageClip(temp_img_path).with_duration(audio_clip.duration)
-                    video_clip = video_clip.with_audio(audio_clip)
-                    
-                    # Render target file
-                    output_file = "output_video.mp4"
-                    video_clip.write_videofile(
-                        output_file, 
-                        fps=24, 
-                        codec="libx264", 
-                        audio_codec="aac"
-                    )
-                    
-                    # Close clips to free memory system handles
-                    audio_clip.close()
-                    video_clip.close()
-                    
-                    st.session_state['video_path'] = output_file
-                    
-                except Exception as video_err:
-                    st.error(f"Video processing failed: {str(video_err)}")
-
-# STEP 3: Final Output Delivery
-if st.session_state['video_path'] and os.path.exists(st.session_state['video_path']):
-    st.divider()
-    st.subheader("🎉 Your Video is Ready!")
-    st.video(st.session_state['video_path'])
+        # MoviePy 2.0+ uses .with_duration() and .resized()
+        clip = ImageClip(temp_img_path).with_duration(duration_per_image)
+        clip = clip.resized(target_resolution) 
+        clips.append(clip)
     
-    with open(st.session_state['video_path'], "rb") as file:
-        st.download_button(
-            label="💾 Download MP4 Video File",
-            data=file,
-            file_name="created_movie.mp4",
-            mime="video/mp4",
-            use_container_width=True
-        )
+    final_video = concatenate_videoclips(clips, method="compose")
+    final_video = final_video.with_fps(fps)
+    
+    audio_clip = AudioFileClip(audio_path)
+    if audio_clip.duration > final_video.duration:
+        audio_clip = audio_clip.with_duration(final_video.duration)
+
+    final_clip = final_video.with_audio(audio_clip)
+    
+    output_filename = "output_video.mp4"
+    final_clip.write_videofile(output_filename, codec="libx264", audio_codec="aac")
+    return output_filename
+
+# --- 3. STREAMLIT UI LOGIC ---
+
+st.set_page_config(page_title="Selan Video Creator", layout="wide")
+
+# Display logo if it exists
+if os.path.exists("selan.png"):
+    st.image("selan.png")
+
+st.title("Selan - Multimedia Merger")
+st.markdown("Upload multiple images, specify timing, and add audio from a file or YouTube.")
+
+with st.sidebar:
+    st.header("Video Settings")
+    fps = st.slider("Frames Per Second (FPS)", 1, 60, 24)
+    duplicates = st.number_input("Frames per Image", min_value=1, value=48)
+    
+    if st.button("Clear Cache & Temp Files"):
+        cleanup_temp_files()
+        st.rerun()
+
+col1, col2 = st.columns(2)
+
+with col1:
+    st.subheader("1. Images")
+    uploaded_images = st.file_uploader("Upload Image Sequence", type=["jpg", "png", "jpeg"], accept_multiple_files=True)
+    if uploaded_images:
+        st.write(f"✅ {len(uploaded_images)} images uploaded.")
+        st.info(f"Total Duration: {(len(uploaded_images) * duplicates) / fps:.2f} seconds")
+
+with col2:
+    st.subheader("2. Audio")
+    audio_source = st.radio("Source", ["Upload File", "YouTube Link"])
+    
+    if audio_source == "Upload File":
+        uploaded_audio = st.file_uploader("Upload Audio", type=["mp3", "wav"])
+        if uploaded_audio:
+            manual_path = "temp_audio_manual.mp3"
+            with open(manual_path, "wb") as f:
+                f.write(uploaded_audio.getbuffer())
+            st.session_state['audio_path'] = manual_path
+            st.success("Audio File Ready")
+    
+    else:
+        yt_url = st.text_input("Enter YouTube URL")
+        if yt_url:
+            # handle_youtube_download is defined above, so no NameError
+            st.button("Fetch YouTube Audio", 
+                      on_click=handle_youtube_download, 
+                      args=(yt_url,))
+            
+            if 'yt_error' in st.session_state:
+                st.error(f"Download Error: {st.session_state['yt_error']}")
+                st.info("💡 YouTube often blocks cloud servers. Use 'Upload File' as a fallback.")
+
+# Persistent Status Check
+st.write("---")
+if st.session_state.get('audio_path'):
+    st.success(f"🎵 **Audio Status:** Loaded and Ready ({st.session_state['audio_path']})")
+else:
+    st.warning("🎵 **Audio Status:** Not Loaded")
+
+# --- 4. FINAL GENERATION ---
+st.divider()
+if st.button("🚀 Create & Play Video", use_container_width=True):
+    if uploaded_images and st.session_state.get('audio_path'):
+        try:
+            with st.spinner("Rendering video... This may take a minute."):
+                video_file = create_video(uploaded_images, duplicates, fps, st.session_state['audio_path'])
+                st.video(video_file)
+                
+                with open(video_file, "rb") as f:
+                    st.download_button("📥 Download Result", f, file_name="my_video.mp4")
+        except Exception as e:
+            st.error(f"An error occurred: {e}")
+    else:
+        st.warning("Please ensure images are uploaded and audio is 'Loaded and Ready'.")
+        
+
+
+
+
+
+
+
+
+
+
+
+
+
+    
