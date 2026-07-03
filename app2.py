@@ -1,4 +1,3 @@
-pip install moviepy yt-dlp streamlit
 import streamlit as st
 import os
 import glob
